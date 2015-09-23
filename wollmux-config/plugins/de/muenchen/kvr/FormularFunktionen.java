@@ -37,7 +37,7 @@ public class FormularFunktionen
     //min. 0 Nachkommastellen, max. 2 Nachkommastellen, 1000er mit "." gruppieren
     return format(ergebnis,0,2,true);
     
-    } catch(Exception e) { return "Fehlerhafte Eingabe"; }
+    } catch(Exception e) { return ""; }
   }
   
   /**
@@ -57,7 +57,7 @@ public class FormularFunktionen
     //min. 0 Nachkommastellen, max. 2 Nachkommastellen, 1000er mit "." gruppieren
     return format(ergebnis,0,2,true);
     
-    } catch(Exception e) { return "Fehlerhafte Eingabe"; }
+    } catch(Exception e) { return ""; }
   }
 
 

@@ -39,7 +39,7 @@ revision="$2"
 if [ $# = 3 ]; then
   version="$3"
 else
-  version="$(($(date +%Y) - 2000)).$(date +%m|sed s/^0//)"
+  version="$(($(date +%Y) - 2000)).$(date +%m)"
 fi
 
 wsc="${url##*/}"
@@ -86,8 +86,8 @@ done
 
 echo "Erzeuge $outdir/${wsc}-${version}.tar.gz"
 tar --owner=0 --group=0 -czf "$outdir/${wsc}-${version}.tar.gz" "${wsc}-${version}"
-echo "Erzeuge $outdir/${wsc}-${version}-windows.zip"
-"${scriptdir}"/tar2zip "$outdir/${wsc}-${version}.tar.gz" && mv "$outdir/${wsc}-${version}.zip" "$outdir/${wsc}-${version}-windows.zip"
+echo "Erzeuge $outdir/${wsc}-${version}-windows.7z"
+"${scriptdir}"/tarTo7z "$outdir/${wsc}-${version}.tar.gz" && mv "$outdir/${wsc}-${version}.7z" "$outdir/${wsc}-${version}-windows.7z"
 
  # Debian-Paket bauen, falls entsprechendes Skript vorhanden
 if [ -x "${wsc}-${version}/debian/make" ]; then

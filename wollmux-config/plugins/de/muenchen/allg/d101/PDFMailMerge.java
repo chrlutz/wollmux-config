@@ -115,7 +115,7 @@ public class PDFMailMerge
    * Enthält das Kommando für den PDF-Viewer, der im Druckdialog vorausgewählt sein
    * soll.
    */
-  private static final String PDF_VIEWER_DEFAULT_COMMAND = "acroread";
+  private static final String PDF_VIEWER_DEFAULT_COMMAND = "xdg-open";
 
   /**
    * Titel der Fehlerdialoge
@@ -172,7 +172,7 @@ public class PDFMailMerge
     // Dialog für Optionen des PDF-Gesamtdrucks starten und Werte PDFMM_DUPLEX,
     // PDFMM_OUTPUT_FILE, pdfViewer auswerten
     ParametersDialog pd = new ParametersDialog();
-    pd.showDialog();
+    pd.showDialog(true, null, null, false);
     if (pd.isCanceled())
     {
       pmod.cancel();
@@ -247,7 +247,51 @@ public class PDFMailMerge
         file.delete();
         pmod.setPrintProgressValue(n++);
       }
-      dest.save(outputFile.getAbsolutePath());
+      boolean tryagain = true;
+      while (tryagain)
+      {
+        try
+        {
+          dest.save(outputFile.getAbsolutePath());
+          // Erfolg also nicht nochmal versuchen
+          tryagain = false;
+        }
+        catch (Exception ex)
+        {
+          if (askForInput(FEHLER_TITLE, "Beim Schreiben in die Datei " + 
+            outputFile.getAbsolutePath() + 
+            " ist ein Fehler aufgetreten (" + 
+            ex.getMessage() + "), wollen Sie es erneut versuchen?", null, 80))
+          {
+            // Erneuter Versuch
+            tryagain = true;
+            String lOutputFileName;
+            ParametersDialog fileNameDialog = new ParametersDialog(outputFile.getParent());
+            fileNameDialog.showDialog(false, outputFile.getAbsolutePath(), pdfViewer, duplex);
+            if (fileNameDialog.isCanceled())
+            {
+              tryagain = false;
+              outputFile = null;
+            }
+            else 
+            {
+              outputFile = fileNameDialog.getOutputFile();
+              if (outputFile == null)
+              {
+                showInfo(FEHLER_TITLE, "Ausgabedatei konnte nicht ermittelt werden.",
+                  null, 80);
+                tryagain = false;
+              }
+            }
+          } 
+          else
+          {
+            // Der Benutzer ignoriert den Fehler
+            tryagain = false;
+            outputFile = null;
+          }
+        }
+      }
 
       // aufräumen
       dest.close();
@@ -425,12 +469,84 @@ public class PDFMailMerge
   }
 
   /**
+   * Diese Methode erzeugt einen nicht modalen Swing-Dialog zur Abfrage einer User-Entscheidung
+   * (Ja/Nein).
+   * 
+   * @param sTitle
+   *          Titelzeile des Dialogs
+   * @param sMessage
+   *          die Nachricht, die im Dialog angezeigt werden soll.
+   * @param t
+   *          kann ein Throwable != null enthalten, dessen StackTrace dann zwei
+   *          Leerzeilen nach sMessage ausgegeben wird, kann aber auch null sein.
+   * @param margin
+   *          ist margin > 0 und sind in einer Zeile mehr als margin Zeichen
+   *          vorhanden, so wird der Text beim nächsten Leerzeichen umgebrochen.
+   * @return true wenn der User die Frage positiv beantwortet hat, false sonst
+   */
+  private static boolean askForInput(java.lang.String sTitle, java.lang.String sMessage,
+      Throwable t, int margin)
+  {
+    // StackTrace von e in String umwandeln:
+    StringBuffer b = new StringBuffer();
+    if (t != null)
+    {
+      b.append("\n\n" + t.toString() + "\n");
+      for (StackTraceElement st : t.getStackTrace())
+        b.append(st + "\n");
+      sMessage += b;
+    }
+
+    // zu lange Strings ab margin Zeichen umbrechen:
+    String formattedMessage = "";
+    String[] lines = sMessage.split("\n");
+    for (int i = 0; i < lines.length; i++)
+    {
+      String[] words = lines[i].split(" ");
+      int chars = 0;
+      for (int j = 0; j < words.length; j++)
+      {
+        String word = words[j];
+        if (margin > 0 && chars > 0 && chars + word.length() > margin)
+        {
+          formattedMessage += "\n";
+          chars = 0;
+        }
+        formattedMessage += word + " ";
+        chars += word.length() + 1;
+      }
+      if (i != lines.length - 1) formattedMessage += "\n";
+    }
+
+
+      // Dialog anzeigen:
+      final String msg = formattedMessage;
+      final String ti = sTitle;
+      int result = JOptionPane.showConfirmDialog(null,
+        msg, ti, javax.swing.JOptionPane.YES_NO_OPTION);
+
+      return result == JOptionPane.YES_OPTION;
+    
+  }
+  
+  /**
    * Beschreibt den Dialog zur Einstellung der Optionen für das PDF-Gesamtdokument
    * 
    * @author Christoph Lutz (D-III-ITD-D101)
    */
   public static class ParametersDialog
   {
+    public ParametersDialog(){}
+
+    /**
+     * Konstruktor
+     * @param outputDir Pfad zum Verzeichnis der Ausgabedatei, der voreingestellt sein soll
+     */
+    public ParametersDialog(String outputDir)
+    {
+        currentPath = outputDir;
+    }
+
     /**
      * Kommando-String, der dem closeActionListener übermittelt wird, wenn der Dialog
      * über den Drucken-Knopf geschlossen wird.
@@ -464,7 +580,7 @@ public class PDFMailMerge
     private JButton viewerChooserButton;
 
     private String currentPath;
-
+    
     private WindowListener myWindowListener = new WindowListener()
     {
       public void windowDeactivated(WindowEvent e)
@@ -496,11 +612,26 @@ public class PDFMailMerge
      * selbstverständlich wird dabei auf die Thread-Safety bezüglich des EDT
      * geachtet.
      * 
+     * @param isInitialDialog Entscheidet ob der Dialog das erste Mal angezeigt wird,
+     * oder ein weiteres Mal, um Fehlentscheidungen (z. B. Datei ohne Schreibberechtigung)
+     * zu korrigieren.
+     * 
+     * @param outputFilename Vorauswahl zum Namen der Ausgabedatei, falls isInitialDialog
+     * <code>false</false> ist
+     * @param pdfViewerCommand Vorauswahl zum Pdf-Viewer Programm, falls isInitialDialog
+     * <code>false</false> ist
+     * @param duplex  Vorauswahl zur Einstellung "Duplexseiten benötigt", 
+     * falls isInitialDialog <code>false</false> ist 
      * @author Christoph Lutz (D-III-ITD-D101)
      */
-    public void showDialog()
+    public void showDialog(boolean isInitialDialog, String outputFilename,
+           String pdfViewerCommand, boolean duplex)
     {
       final boolean[] lock = new boolean[] { true };
+      final boolean isInitial = isInitialDialog;
+      final boolean duplexRequired = duplex;
+      final String outputName = outputFilename;
+      final String pdfViewer = pdfViewerCommand;
       this.closeActionListener = new ActionListener()
       {
         public void actionPerformed(ActionEvent e)
@@ -516,7 +647,7 @@ public class PDFMailMerge
       {
         public void run()
         {
-          createGUI();
+          createGUI(isInitial, outputName, pdfViewer, duplexRequired);
         }
       });
       synchronized (lock)
@@ -589,7 +720,22 @@ public class PDFMailMerge
       return null;
     }
 
-    private void createGUI()
+    /**
+     * Baut das GUI auf.
+     * 
+     * @param isInitialDialog Entscheidet ob der Dialog das erste Mal angezeigt wird,
+     * oder ein weiteres Mal, um Fehlentscheidungen (z. B. Datei ohne Schreibberechtigung)
+     * zu korrigieren.
+     * 
+     * @param outputFilename Vorauswahl zum Namen der Ausgabedatei, falls isInitialDialog
+     * <code>false</false> ist
+     * @param pdfViewerCommand Vorauswahl zum Pdf-Viewer Programm, falls isInitialDialog
+     * <code>false</false> ist
+     * @param duplexRequired  Vorauswahl zur Einstellung "Duplexseiten benötigt", 
+     * falls isInitialDialog <code>false</false> ist 
+     */    
+    private void createGUI(boolean isInitialDialog, String outputFilename,
+            String pdfViewer, boolean duplexRequired)
     {
       dialog = new JDialog();
       dialog.setTitle("PDF-Gesamtdokument");
@@ -696,17 +842,27 @@ public class PDFMailMerge
 
       JButton button;
       hbox = Box.createHorizontalBox();
-      button = new JButton(("Abbrechen"));
-      button.addActionListener(new ActionListener()
+      if (isInitialDialog)
       {
-        public void actionPerformed(ActionEvent e)
+        button = new JButton(("Abbrechen"));
+        button.addActionListener(new ActionListener()
         {
-          abort(CMD_CANCEL);
-        }
-      });
-      hbox.add(button);
+          public void actionPerformed(ActionEvent e)
+          {
+            abort(CMD_CANCEL);
+          }
+        });
+        hbox.add(button);
+      }
       hbox.add(Box.createHorizontalGlue());
-      button = new JButton(("Drucken"));
+      if (isInitialDialog)
+      {
+        button = new JButton(("Drucken"));
+      }
+      else 
+      {
+        button = new JButton(("Ok"));
+      }
       button.addActionListener(new ActionListener()
       {
         public void actionPerformed(ActionEvent e)
@@ -719,6 +875,27 @@ public class PDFMailMerge
             return;
           }
 
+          if (outputFileCheckBox.isSelected())
+          {
+            String lOutputFileName = outputFileTextField.getText().trim();
+            File lOutputFile = new File (lOutputFileName);
+            if (lOutputFile.exists())
+            {
+              if (lOutputFile.canWrite())
+              {
+                if (!askForInput(FEHLER_TITLE, "Eine Datei namens " + lOutputFileName + " existiert bereits, wollen Sie sie überschreiben?", null, 80))
+                {
+                  return;
+                }
+              } 
+              else
+              {
+                showInfo(FEHLER_TITLE, "Eine Datei namens " + lOutputFileName + " existiert bereits, kann aber nicht überschrieben werden. Bitte prüfen Sie ob Sie Schreibrechte auf die Datei haben, und wählen Sie gegebenenfalls eine andere Datei aus.", null, 80);
+                return; 
+              }
+            }
+            
+          }
           if (viewerCheckBox.isSelected()
             && (viewerTextField.getText() == null || viewerTextField.getText().trim().equals(
               "")))
@@ -744,6 +921,29 @@ public class PDFMailMerge
       dialog.setLocation(x, y);
       dialog.setResizable(false);
       dialog.setVisible(true);
+      if (!isInitialDialog)
+      {
+        duplexCheckBox.setEnabled(false);
+        duplexCheckBox.setSelected(duplexRequired);
+        viewerCheckBox.setEnabled(false);
+        viewerTextField.setEnabled(false);
+        viewerChooserButton.setEnabled(false);
+        outputFileCheckBox.setSelected(true);
+        outputFileTextField.setEnabled(outputFileCheckBox.isSelected());
+        outputFileChooserButton.setEnabled(outputFileCheckBox.isSelected());
+        if (outputFilename != null)
+        {
+          outputFileTextField.setText(outputFilename);
+        }
+        if (pdfViewer != null){
+          viewerCheckBox.setSelected(true);
+          viewerTextField.setText(pdfViewer);
+        }
+        else
+        {
+          viewerCheckBox.setSelected(false);
+        }
+      }
     }
 
     /**
@@ -813,10 +1013,14 @@ public class PDFMailMerge
      * merkt sich dabei das zuletzt ausgewählte Verzeichnis, um beim nächsten Öffnen
      * des Dialogs erneut in diesem Verzeichnis starten zu können.
      * 
+     * @return Der ausgewählte Name für die Auswahl des Dokuments, ggf. erweitert 
+     * um die Endung ".pdf" 
+     * 
      * @author Christoph Lutz (D-III-ITD-D101)
      */
-    private void showOutputFilePicker()
+    private String showOutputFilePicker()
     {
+      String selectedFile = null;
       JFileChooser fc;
       if (currentPath != null)
         fc = new JFileChooser(currentPath);
@@ -851,7 +1055,9 @@ public class PDFMailMerge
         String fname = fc.getSelectedFile().getAbsolutePath();
         if (!fname.toLowerCase().endsWith(".pdf")) fname = fname + ".pdf";
         outputFileTextField.setText(fname);
+        selectedFile = fname;
       }
+      return selectedFile;
     }
 
     /**

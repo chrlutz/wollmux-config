@@ -99,8 +99,13 @@ perform_update()
 
   local preFaxFormular=0
   test ! -e "$dir/vorlagen/fragmente/FaxFormular.ott" && preFaxFormular=1
-  
-  
+
+  local preAngaben_intern_anonym=0
+  test ! -e "$dir/vorlagen/fragmente/Angaben_intern_anonym.ott" && preAngaben_intern_anonym=1  
+ 
+  local preUnterschrift=0
+  test ! -e "$dir/vorlagen/fragmente/Unterschrift.ott" && preUnterschrift=1    
+    
   if [ -d "$dir/scripts" ]; then
     cd "$src/scripts" || error
     for f in * ; do
@@ -264,6 +269,32 @@ perform_update()
       test ! -d "$d/X.insertFrag" && continue
       cd "$src/vorlagen/standard/X.insertFrag" || error
       for f in FaxFormular.ott ; do
+        copy "$f" "$d/X.insertFrag" || error
+      done
+    done
+  fi  
+ 
+   # Spezialfall für Update von Versionen der Standardkonfig vor der Einführung
+   # des Fragments Angaben_intern_anonym.
+  if [ "$preAngaben_intern_anonym" = 1  ]; then
+    for d in $dir/vorlagen/* ; do
+      test "$d" = "fragmente" && continue
+      test ! -d "$d/X.insertFrag" && continue
+      cd "$src/vorlagen/standard/X.insertFrag" || error
+      for f in Angaben_intern_anonym.ott ; do
+        copy "$f" "$d/X.insertFrag" || error
+      done
+    done
+  fi
+  
+   # Spezialfall für Update von Versionen der Standardkonfig vor der Einführung
+   # des Fragments Unterschrift.
+  if [ "$preUnterschrift" = 1  ]; then
+    for d in $dir/vorlagen/* ; do
+      test "$d" = "fragmente" && continue
+      test ! -d "$d/X.insertFrag" && continue
+      cd "$src/vorlagen/standard/X.insertFrag" || error
+      for f in Unterschrift.ott ; do
         copy "$f" "$d/X.insertFrag" || error
       done
     done
